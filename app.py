@@ -2,39 +2,75 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-import wbgapi as wb
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Big Tech & AI Intelligence", layout="wide", page_icon="🤖")
+# --- CONFIGURACIÓN DE PÁGINA (Estilo Profesional) ---
+st.set_page_config(
+    page_title="Terminal Tech Intelligence", 
+    layout="wide", 
+    page_icon="🖥️"
+)
 
-# --- ESTILOS PERSONALIZADOS ---
+# Estilos CSS para tablas y bordes
 st.markdown("""
     <style>
-    .stMetric { background-color: #161b22; border: 1px solid #30363d; padding: 15px; border-radius: 10px; }
-    .plot-container { border: 1px solid #30363d; border-radius: 10px; }
+    .reportview-container .main .block-container{
+        padding-top: 2rem;
+    }
+    .stTable { 
+        font-family: 'Courier New', Courier, monospace; 
+        font-size: 0.9rem;
+    }
+    .main_title { text-align: center; color: white; font-weight: bold;}
+    .data-card {
+        border: 1px solid #30363d; 
+        border-radius: 10px; 
+        padding: 15px;
+        background-color: #161b22;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUENTES DE DATOS (CACHÉ) ---
+# --- UTILIDADES DE FORMATEO (Europeo) ---
 
-@st.cache_data(ttl=86400)
-def get_macro_pib():
-    """Obtiene el PIB de los principales países para comparar"""
-    paises = ['ESP', 'MEX', 'ARG', 'COL', 'CHL', 'DNK', 'NOR', 'PRT']
-    d = wb.data.DataFrame('NY.GDP.MKTP.CD', paises, mrv=1)
-    d.columns = ['PIB_USD']
-    return d
+def format_currency_euro(value, mode='B'):
+    """Convierte valor crudo a string formateado europeo (€/B/T)"""
+    if pd.isna(value) or value == 0:
+        return "N/D"
+    
+    # Notación Americana vs Europea:
+    # 1 Billion (US) = 1.000.000.000 = 1 Mil millones (EU)
+    # 1 Trillion (US) = 1.000.000.000.000 = 1 Billón (EU)
+    
+    trillion = 1_000_000_000_000
+    billion = 1_000_000_000
+    million = 1_000_000
+    
+    # Formateo con puntos de millar y $ al final
+    if value >= trillion:
+        return f"{value/trillion:,.2f} B$".replace(",", "X").replace(".", ",").replace("X", ".")
+    elif value >= billion:
+        return f"{value/billion:,.2f} mMl$".replace(",", "X").replace(".", ",").replace("X", ".") # Mil Millones
+    elif value >= million:
+        return f"{value/million:,.2f} M$".replace(",", "X").replace(".", ",").replace("X", ".")
+    else:
+        return f"{value:,.0f}$".replace(",", "X").replace(".", ",").replace("X", ".")
 
-@st.cache_data(ttl=3600)
-def get_tech_data():
-    # Diccionario de Tickers y categorías
+def format_number(value):
+    """Formatea números crudos (empleados)"""
+    if pd.isna(value) or value == 0:
+        return "N/D"
+    return f"{value:,.0f}".replace(",", ".")
+
+# --- FUENTES DE DATOS (Caché Corta: Actualizado) ---
+
+@st.cache_data(ttl=3600) # Se actualiza cada hora
+def cargar_tech_datos_prof():
     tickers = {
         "Apple": "AAPL", "Microsoft": "MSFT", "Google": "GOOGL", 
         "Amazon": "AMZN", "Nvidia": "NVDA", "Meta": "META",
-        "TSMC": "TSM", "Alibaba": "BABA", "Tencent": "TCEHY", "Baidu": "BIDU"
+        "TSMC": "TSM", "Alibaba": "BABA", "Tencent": "TCEHY"
     }
-    
     results = []
     for nombre, t in tickers.items():
         try:
@@ -43,99 +79,100 @@ def get_tech_data():
             results.append({
                 "Empresa": nombre,
                 "Ticker": t,
-                "Ecosistema": "USA" if t not in ["BABA", "TCEHY", "BIDU", "TSM"] else "Asia",
+                "Ecosistema": "USA" if t not in ["BABA", "TCEHY", "TSM"] else "Asia",
                 "Market Cap": inf.get('marketCap', 0),
                 "Ingresos": inf.get('totalRevenue', 0),
                 "Beneficio": inf.get('ebitda', 0),
                 "Empleados": inf.get('fullTimeEmployees', 0),
-                "Deuda": inf.get('totalDebt', 0),
-                "Cloud_Major": "AWS" if t=="AMZN" else ("Azure" if t=="MSFT" else ("Google Cloud" if t=="GOOGL" else "N/A"))
+                "P/E Ratio": inf.get('trailingPE', 0),
+                "Source_Date": datetime.now().strftime("%d/%m/%Y")
             })
         except: continue
         
-    # Añadimos Empresas Privadas (Estimaciones de mercado 2024/2025)
-    privadas = [
-        {"Empresa": "Anthropic", "Ticker": "Privada", "Ecosistema": "IA Pura", 
-         "Market Cap": 18000000000, "Ingresos": 800000000, "Beneficio": 0, "Empleados": 500, "Deuda": 0, "Cloud_Major": "N/A"},
-        {"Empresa": "xAI", "Ticker": "Privada", "Ecosistema": "IA Pura", 
-         "Market Cap": 24000000000, "Ingresos": 100000000, "Beneficio": 0, "Empleados": 200, "Deuda": 0, "Cloud_Major": "N/A"}
-    ]
-    
-    df = pd.DataFrame(results + privadas)
-    return df
+    df = pd.DataFrame(results)
+    return df, datetime.now().strftime("%d/%m/%Y %H:%M")
+
+@st.cache_data(ttl=1800)
+def cargar_historia_ticker(ticker, period="2y"):
+    try:
+        data = yf.download(ticker, period=period)
+        return data
+    except:
+        return pd.DataFrame()
 
 # --- LÓGICA DE LA APP ---
 
-st.title("🛰️ Terminal de Inteligencia Competitiva Tech & IA")
-st.markdown("---")
-
-df = get_tech_data()
-
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("Análisis de Segmentos")
-    modo = st.radio("Ver por:", ["Mapa de Poder", "Guerra de Nubes", "Cronología IA", "Empresa vs Países"])
-    st.divider()
-    comparar_privadas = st.toggle("Incluir Anthropic y xAI", value=True)
-
-if not comparar_privadas:
-    df = df[df['Ticker'] != "Privada"]
-
-# --- MÓDULOS ---
-
-if modo == "Mapa de Poder":
-    st.subheader("Dominancia del Ecosistema Tech")
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        fig = px.scatter(df, x="Empleados", y="Ingresos", size="Market Cap", color="Ecosistema",
-                         hover_name="Empresa", log_x=True, log_y=True, template="plotly_dark",
-                         title="Eficiencia: Ingresos por Empleado (Tamaño = Market Cap)")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.dataframe(df[['Empresa', 'Market Cap', 'Ingresos']].sort_values(by="Market Cap", ascending=False))
-
-elif modo == "Guerra de Nubes":
-    st.subheader("Infraestructura Cloud: El motor de la IA")
-    # Datos estimados de cuota de mercado cloud
-    cloud_data = pd.DataFrame({
-        "Proveedor": ["AWS (Amazon)", "Azure (Microsoft)", "Google Cloud", "Otros"],
-        "Ingresos Est. ($B)": [90, 65, 33, 50]
-    })
-    fig_pie = px.pie(cloud_data, values="Ingresos Est. ($B)", names="Proveedor", hole=0.4,
-                     color_discrete_sequence=px.colors.qualitative.Pastel)
-    st.plotly_chart(fig_pie)
-    st.info("Nota: AWS y Azure dominan la infraestructura donde se entrenan Anthropic y xAI.")
-
-elif modo == "Empresa vs Países":
-    st.subheader("¿Qué tan grandes son comparadas con naciones?")
-    df_pib = get_macro_pib()
-    
-    # Unimos datos
-    comp_data = []
-    for _, row in df.iterrows():
-        comp_data.append({"Entidad": row['Empresa'], "Valor_USD": row['Ingresos'], "Tipo": "Empresa (Ingresos)"})
-    for idx, row in df_pib.iterrows():
-        comp_data.append({"Entidad": idx, "Valor_USD": row['PIB_USD'], "Tipo": "País (PIB)"})
-        
-    df_comp = pd.DataFrame(comp_data).sort_values(by="Valor_USD", ascending=False)
-    fig_bar = px.bar(df_comp, x="Entidad", y="Valor_USD", color="Tipo", template="plotly_dark")
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-elif modo == "Cronología IA":
-    st.subheader("Hitos y Valoración")
-    cronologia = pd.DataFrame([
-        {"Fecha": "2022-11", "Evento": "Lanzamiento ChatGPT", "Impacto": "Explosión NVDA"},
-        {"Fecha": "2023-01", "Evento": "Inversión MSFT en OpenAI", "Impacto": "Carrera Azure"},
-        {"Fecha": "2023-03", "Evento": "Fundación xAI (Elon Musk)", "Impacto": "Nace competidor"},
-        {"Fecha": "2024-03", "Evento": "Claude 3 (Anthropic)", "Impacto": "Supera a GPT-4"}
-    ])
-    st.table(cronologia)
-    
-    # Gráfico de Nvidia como proxy de la IA
-    nvda = yf.download("NVDA", period="2y")['Close']
-    st.line_chart(nvda)
-
+# TÍTULO CENTRAL (Como image_2.png)
+st.markdown("<h1 class='main_title'>Tech Giants: Market & Fundamentals Intelligence</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:gray'>Seguimiento regular de la evolución competitiva</p>", unsafe_allow_html=True)
 st.divider()
-st.caption("Terminal v2.0 - Datos Híbridos (Mercado + Estimaciones Privadas + Banco Mundial)")
+
+# Cargamos datos base
+df_prof, last_update = cargar_tech_datos_prof()
+
+# --- SIDEBAR (Controles de Línea Temporal) ---
+with st.sidebar:
+    st.header("🎛️ Controles del Dashboard")
+    st.divider()
+    empresa_focus = st.selectbox("Selecciona Empresa Principal:", df_prof['Empresa'].unique(), index=4) # Nvidia index
+    st.divider()
+    periodo_hist = st.radio("Rango Temporal para Gráficos:", ["1M", "6M", "YTD", "1A", "5A", "Max"], index=3)
+    mapa_periodo = {"1M":"1mo", "6M":"6mo", "YTD":"ytd", "1A":"1y", "5A":"5y", "Max":"max"}
+    st.divider()
+    st.caption(f"Actualización Total: {last_update}")
+    st.caption(f"Fuente de datos: Yahoo Finance")
+
+# --- MÓDULO 1: LA TABLA RESUMEN (Inspirada en las referencias) ---
+st.subheader("📋 Resumen Competitivo Actual (Formato Europeo)")
+
+# Preparamos los datos para visualización
+df_display = df_prof.copy()
+df_display['Market Cap (EU)'] = df_display['Market Cap'].apply(lambda x: format_currency_euro(x, 'B'))
+df_display['Ingresos (EU)'] = df_display['Ingresos'].apply(lambda x: format_currency_euro(x, 'B'))
+df_display['Beneficio (EU)'] = df_display['Beneficio'].apply(lambda x: format_currency_euro(x, 'B'))
+df_display['Empleados (EU)'] = df_display['Empleados'].apply(format_number)
+df_display['P/E Ratio'] = df_display['P/E Ratio'].apply(lambda x: f"{x:.1f}" if x > 0 else "N/D")
+
+# Visualización limpia (st.write en lugar de st.dataframe)
+# st.write(df_display[['Empresa', 'Ticker', 'Market Cap (EU)', 'Ingresos (EU)', 'Empleados (EU)', 'P/E Ratio']])
+# O mejor, usar st.table para un formato más estático como el de las fotos:
+st.table(df_display[['Empresa', 'Ticker', 'Market Cap (EU)', 'Ingresos (EU)', 'Empleados (EU)', 'P/E Ratio']].sort_values("Market Cap (EU)", ascending=False))
+
+# --- MÓDULO 2: LÍNEA TEMPORAL DE EVOLUCIÓN (Jugar con variables) ---
+st.divider()
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.markdown(f"### 📈 Análisis de: {empresa_focus}")
+    st.markdown(f"_Período seleccionado: {periodo_hist}_")
+    
+    ticker_focus = df_prof[df_prof['Empresa'] == empresa_focus]['Ticker'].values[0]
+    hist_data = cargar_historia_ticker(ticker_focus, period=mapa_periodo[periodo_hist])
+    
+    if not hist_data.empty:
+        ultimo_cierre = hist_data['Close'].iloc[-1].item()
+        cierre_ayer = hist_data['Close'].iloc[-2].item()
+        cambio = (ultimo_cierre - cierre_ayer) / cierre_ayer
+        st.metric(f"Último Cierre (${ticker_focus})", f"{ultimo_cierre:.2f}$", f"{cambio*100:.2f}%")
+        
+        fig_line = px.line(hist_data, y="Close", template="plotly_dark", title=f"Precio de {ticker_focus}")
+        st.plotly_chart(fig_line, use_container_width=True)
+
+with col2:
+    st.subheader("🔬 Comparativa de Variables Propias")
+    # Este módulo permite elegir qué variables cruzar en una gráfica de burbujas
+    st.markdown("<p style='color:gray'>Juega con los ejes para ver correlaciones.</p>", unsafe_allow_html=True)
+    
+    col_x = st.selectbox("Eje X:", ["Empleados", "Ingresos", "Market Cap"])
+    col_y = st.selectbox("Eje Y:", ["Ingresos", "Market Cap", "P/E Ratio"])
+    col_size = st.selectbox("Tamaño:", ["Market Cap", "Ingresos", "Empleados"])
+    
+    fig_bubble = px.scatter(df_prof, x=col_x, y=col_y, size=col_size, color="Empresa",
+                             hover_name="Empresa", template="plotly_dark", title=f"{col_y} vs {col_x}")
+    fig_bubble.update_layout(log_x=True, log_y=True) # Escalas logs para ver los datos mejor
+    st.plotly_chart(fig_bubble, use_container_width=True)
+
+# --- PIE DE PÁGINA PROFESIONAL ---
+st.divider()
+st.caption(f"©️ Terminal de Inteligencia Corporativa - Datos Estructurales (Market Cap, Ingresos, Empleados) de Yahoo Finance. Última actualización sincrónica: {last_update}.")
+st.caption(f"Nota de notación: Se utiliza notación europea. mMl$ = Mil Millones de Dólares (10^9). B$ = Billones de Dólares (10^12).")
