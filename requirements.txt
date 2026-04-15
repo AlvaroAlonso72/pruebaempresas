@@ -1,0 +1,7 @@
+streamlit
+fredapi
+pandas
+plotly
+wbgapi
+yfinance
+plotly.express
