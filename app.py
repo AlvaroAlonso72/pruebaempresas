@@ -4,125 +4,122 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Terminal Inteligencia Corporativa", layout="wide", page_icon="📈")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Terminal Pro Tech", layout="wide")
 
-# --- FUNCIONES DE FORMATEO EUROPEO ---
-def format_point_thousands(n):
-    """Convierte 1000000 en 1.000.000"""
-    if pd.isna(n) or n == 0: return "N/D"
-    return f"{int(n):,}".replace(",", ".")
-
-def format_currency_eu(n):
-    """Convierte números grandes en formato moneda europea legible"""
-    if pd.isna(n) or n == 0: return "N/D"
-    return f"{n:,.2f} $".replace(",", "X").replace(".", ",").replace("X", ".")
-
-# --- CARGA DE DATOS ---
+# --- FUNCIONES DE CARGA ---
 @st.cache_data(ttl=3600)
-def cargar_datos_completos():
+def cargar_datos_pro():
     tickers = {
         "Nvidia": "NVDA", "Apple": "AAPL", "Microsoft": "MSFT", 
-        "Alphabet": "GOOGL", "Amazon": "AMZN", "Meta": "META",
-        "Tesla": "TSLA", "Broadcom": "AVGO", "TSMC": "TSM", 
-        "Alibaba": "BABA", "Tencent": "TCEHY", "ASML": "ASML"
+        "Google": "GOOGL", "Amazon": "AMZN", "Meta": "META",
+        "Tesla": "TSLA", "Broadcom": "AVGO", "TSMC": "TSM", "Alibaba": "BABA"
     }
-    
-    data_list = []
+    data = []
     for nombre, t in tickers.items():
         try:
             tk = yf.Ticker(t)
             inf = tk.info
-            data_list.append({
+            data.append({
                 "Empresa": nombre,
                 "Ticker": t,
                 "Market Cap": inf.get('marketCap', 0),
                 "Ingresos": inf.get('totalRevenue', 0),
-                "EBITDA": inf.get('ebitda', 0),
-                "Empleados": inf.get('fullTimeEmployees', 0),
                 "P/E Ratio": inf.get('trailingPE', 0),
-                "Margen Neto (%)": inf.get('profitMargins', 0) * 100,
-                "Ecosistema": "USA" if t not in ["BABA", "TCEHY", "TSM", "ASML"] else "Global"
+                "Empleados": inf.get('fullTimeEmployees', 0),
+                "Precio": inf.get('currentPrice', 0),
+                "EBITDA": inf.get('ebitda', 0)
             })
         except: continue
-    return pd.DataFrame(data_list)
+    return pd.DataFrame(data)
+
+@st.cache_data(ttl=1800)
+def cargar_historico_limpio(tickers, fecha_inicio):
+    df_h = yf.download(tickers, start=fecha_inicio)['Close']
+    if isinstance(df_h, pd.Series): # Si solo es uno, convertir a DF
+        df_h = df_h.to_frame()
+    return df_h
 
 # --- INTERFAZ ---
-st.title("🏛️ Terminal de Análisis Tecnológico")
-df_raw = cargar_datos_completos()
+st.title("🚀 Terminal de Inteligencia Corporativa Tech")
 
-# --- SIDEBAR: FILTROS TEMPORALES Y SELECCIÓN ---
-with st.sidebar:
-    st.header("📅 Filtros de Tiempo")
-    fecha_inicio = st.date_input("Ver datos desde:", datetime.now() - timedelta(days=365))
-    st.divider()
-    st.header("📊 Configuración Gráfica")
-    empresas_selec = st.multiselect("Comparar Empresas:", df_raw['Empresa'].unique(), default=["Nvidia", "Microsoft"])
-    variable_grafico = st.selectbox("Variable a graficar:", ["Precio (Cierre)", "Volumen", "Market Cap (Histórico Est.)"])
+df = cargar_datos_pro()
 
-# --- PESTAÑAS ---
-tab1, tab2, tab3 = st.tabs(["📋 Tabla de Datos", "📉 Gráfico Comparativo", "📖 Glosario"])
+# --- 1. TABLA RESUMEN (ORDENABLE Y FORMATEADA) ---
+st.subheader("📋 Monitor de Mercado (Datos Actuales)")
+st.markdown("_Haz clic en las cabeceras para ordenar por valor real_")
 
-with tab1:
-    st.subheader("Estado Actual de las Compañías")
+# Usamos st.dataframe con configuración de columnas para mantener el orden numérico
+st.dataframe(
+    df,
+    column_config={
+        "Market Cap": st.column_config.NumberColumn("Market Cap ($)", format="%d", help="Valor total de mercado"),
+        "Ingresos": st.column_config.NumberColumn("Ingresos ($)", format="%d"),
+        "Empleados": st.column_config.NumberColumn("Empleados", format="%d"),
+        "P/E Ratio": st.column_config.NumberColumn("P/E Ratio", format="%.2f"),
+        "Precio": st.column_config.NumberColumn("Precio ($)", format="%.2f"),
+        "EBITDA": st.column_config.NumberColumn("EBITDA ($)", format="%d"),
+    },
+    hide_index=True,
+    use_container_width=True
+)
+
+st.divider()
+
+# --- 2. GRÁFICO COMPARATIVO INTEGRADO ---
+col_ctrl, col_viz = st.columns([1, 3])
+
+with col_ctrl:
+    st.markdown("### 🛠️ Comparador")
+    empresas_selec = st.multiselect("Empresas:", df['Empresa'].unique(), default=["Nvidia", "Apple"])
     
-    # Preparamos una copia formateada para la tabla sin tocar los números para el gráfico
-    df_tabla = df_raw.copy()
-    df_tabla['Market Cap'] = df_tabla['Market Cap'].apply(format_point_thousands)
-    df_tabla['Ingresos'] = df_tabla['Ingresos'].apply(format_point_thousands)
-    df_tabla['EBITDA'] = df_tabla['EBITDA'].apply(format_point_thousands)
-    df_tabla['Empleados'] = df_tabla['Empleados'].apply(format_point_thousands)
-    df_tabla['P/E Ratio'] = df_tabla['P/E Ratio'].apply(lambda x: f"{x:,.2f}".replace(".", ","))
+    # Permitimos elegir CUALQUIER variable de la tabla para el gráfico
+    var_map = {
+        "Precio Histórico": "Precio",
+        "Market Cap Actual": "Market Cap",
+        "Ingresos": "Ingresos",
+        "Ratio P/E": "P/E Ratio",
+        "Empleados": "Empleados"
+    }
+    variable_a_ver = st.selectbox("Variable a comparar:", list(var_map.keys()))
+    
+    fecha_in = st.date_input("Desde:", datetime.now() - timedelta(days=365))
 
-    st.dataframe(df_tabla, use_container_width=True, hide_index=True)
-    st.caption("Nota: Haz clic en el nombre de la columna para ordenar. Los valores de moneda están en USD.")
-
-with tab2:
-    if not empresas_selec:
-        st.warning("Selecciona al menos una empresa en el panel izquierdo.")
-    else:
-        st.subheader(f"Comparativa: {variable_grafico}")
-        
-        # Diccionario para mapear la variable seleccionada con el dato de Yahoo
-        mapa_vars = {"Precio (Cierre)": "Close", "Volumen": "Volume", "Market Cap (Histórico Est.)": "Close"}
-        
-        datos_comparativos = pd.DataFrame()
-        
-        for emp in empresas_selec:
-            t = df_raw[df_raw['Empresa'] == emp]['Ticker'].values[0]
-            h = yf.download(t, start=fecha_inicio)
+with col_viz:
+    if variable_a_ver == "Precio Histórico":
+        # Gráfico de líneas temporal
+        tickers_sel = df[df['Empresa'].isin(empresas_selec)]['Ticker'].tolist()
+        if tickers_sel:
+            h_data = cargar_historico_limpio(tickers_sel, fecha_in)
+            # Mapear columnas de Ticker a Nombre de Empresa para la leyenda
+            nombres_map = dict(zip(df['Ticker'], df['Empresa']))
+            h_data.columns = [nombres_map.get(c, c) for c in h_data.columns]
             
-            if not h.empty:
-                # Aplanar multi-index si existe
-                if isinstance(h.columns, pd.MultiIndex):
-                    h.columns = h.columns.get_level_values(0)
-                
-                serie = h[mapa_vars[variable_grafico]]
-                
-                # Si es Market Cap estimado, multiplicamos precio por el market cap actual/precio actual
-                if variable_grafico == "Market Cap (Histórico Est.)":
-                    m_cap_actual = df_raw[df_raw['Empresa'] == emp]['Market Cap'].values[0]
-                    precio_actual = serie.iloc[-1]
-                    serie = serie * (m_cap_actual / precio_actual)
-                
-                datos_comparativos[emp] = serie
-
-        if not datos_comparativos.empty:
-            fig = px.line(datos_comparativos, template="plotly_dark", 
-                          labels={"value": variable_grafico, "Date": "Fecha"})
-            fig.update_layout(hovermode="x unified")
+            fig = px.line(h_data, title="Evolución de Precio ($)", template="plotly_dark")
+            fig.update_layout(hovermode="x unified", yaxis_title="Precio USD")
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.error("No se pudieron recuperar datos históricos para la comparación.")
+    else:
+        # Gráfico de barras para variables estáticas (Ingresos, MC, etc.)
+        df_sub = df[df['Empresa'].isin(empresas_selec)]
+        fig_bar = px.bar(
+            df_sub, x="Empresa", y=var_map[variable_a_ver], 
+            color="Empresa", title=f"Comparativa de {variable_a_ver}",
+            template="plotly_dark", text_auto='.2s'
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-with tab3:
-    st.markdown("""
-    ### Glosario de Términos
-    * **Market Cap:** Valor total de mercado (Acciones x Precio).
-    * **P/E Ratio:** Veces que el beneficio está contenido en el precio.
-    * **EBITDA:** Capacidad operativa de generar caja.
-    * **Notación:** Se utiliza el punto (.) para separar miles y la coma (,) para decimales para facilitar la lectura europea.
-    """)
+# --- 3. GLOSARIO CONCISO ---
+st.divider()
+st.markdown("### 📖 Glosario Técnico")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown("**Market Cap:** Valor total de la empresa en bolsa.")
+    st.markdown("**Ingresos:** Facturación total bruta (Revenue).")
+with c2:
+    st.markdown("**P/E Ratio:** Relación precio/beneficio (valoración).")
+    st.markdown("**EBITDA:** Beneficio operativo antes de impuestos/amortización.")
+with c3:
+    st.markdown("**Volumen:** Cantidad de acciones negociadas en el mercado.")
+    st.markdown("**Empleados:** Fuerza laboral total declarada.")
 
-st.markdown("---")
-st.caption(f"Terminal v3.1 | Fuente: Yahoo Finance | Última consulta: {datetime.now().strftime('%H:%M:%S')}")
+st.caption(f"Actualización: {datetime.now().strftime('%d/%m/%Y %H:%M')} | Notación: Puntos para miles habilitados en tabla.")
